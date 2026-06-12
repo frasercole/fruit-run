@@ -454,7 +454,7 @@
   // ---------------------------------------------------------
   function getMikey() { return chicks.find(c => c.kind === 'mikey'); }
 
-  const MIKEY_SENSE = 290;   // how far Mikey can "smell" an orange fruit (px)
+  const MIKEY_SENSE = 140;   // how far Mikey can "smell" an orange fruit (px) — must be fairly close
 
   // nearest un-eaten orange fruit to a screen point, within range; null if none
   function nearestOrangeFruit(sx0, sy0, range) {
@@ -493,13 +493,12 @@
       const sx0 = motherScreenX() - m.lag;
       const target = nearestOrangeFruit(sx0, m.y, MIKEY_SENSE);
       if (target) {
-        // pull toward the fruit fast (zoom up) in both x (via lag) and y
+        // drift gently toward the fruit (subtle nudge) in both x (via lag) and y
         const desiredLag = motherScreenX() - target.x;
-        const pull = Math.min(1, dt * 7);
-        m.lag += (desiredLag - m.lag) * pull;
+        m.lag += (desiredLag - m.lag) * Math.min(1, dt * 2.4);
         m.vy = 0;
-        m.y += (target.y - m.y) * Math.min(1, dt * 11);
-        m.flap += dt * 30;
+        m.y += (target.y - m.y) * Math.min(1, dt * 3.2);
+        m.flap += dt * 18;
         // forgiving grab while lunging -> reliably triggers his frenzy
         eatPass(scroll + motherScreenX() - m.lag, m.y, 38, true);
       } else {
