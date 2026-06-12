@@ -436,7 +436,7 @@
   function updateChicks(dt) {
     const mWorldX = scroll + motherScreenX();
     for (const c of chicks) {
-      if (c.kind === 'mikey' && mikeyState !== 'with') continue;
+      if (c.kind === 'mikey') continue; // Mikey is fully driven by updateMikey
       const targetY = sampleTrailY(mWorldX - c.lag) + c.yOff;
       // spring toward target -> different inertia than mother
       const k = c.ease;
@@ -454,6 +454,29 @@
   // ---------------------------------------------------------
   function getMikey() { return chicks.find(c => c.kind === 'mikey'); }
 
+  const MIKEY_SENSE = 290;   // how far Mikey can "smell" an orange fruit (px)
+
+  // nearest un-eaten orange fruit to a screen point, within range; null if none
+  function nearestOrangeFruit(sx0, sy0, range) {
+    let best = null, bestD = range;
+    for (const t of trees) {
+      const sx = t.x - scroll;
+      if (sx < -80 || sx > W + 140) continue;
+      const topY = t.isBush ? groundY() - t.r * 0.7 : groundY() - t.trunkH - t.r * 0.5;
+      const ang = t.rotating ? t.spin : 0;
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      for (const fr of t.fruits) {
+        if (fr.eaten || !fr.orange) continue;
+        const fx = sx + (fr.ox * ca - fr.oy * sa);
+        const fy = topY + (fr.ox * sa + fr.oy * ca);
+        if (fx < sx0 - 50) continue;              // don't chase fruit already behind him
+        const d = Math.hypot(fx - sx0, fy - sy0);
+        if (d < bestD) { bestD = d; best = { x: fx, y: fy, d }; }
+      }
+    }
+    return best;
+  }
+
   function triggerMikeyFrenzy() {
     if (mikeyState !== 'with') return;
     mikeyState = 'frenzy';
@@ -465,7 +488,32 @@
     const m = getMikey();
     if (!m) return;
     const gY = groundY();
-    if (mikeyState === 'frenzy') {
+    if (mikeyState === 'with') {
+      // --- magnetic lunge: chase any orange fruit within sensing range ---
+      const sx0 = motherScreenX() - m.lag;
+      const target = nearestOrangeFruit(sx0, m.y, MIKEY_SENSE);
+      if (target) {
+        // pull toward the fruit fast (zoom up) in both x (via lag) and y
+        const desiredLag = motherScreenX() - target.x;
+        const pull = Math.min(1, dt * 7);
+        m.lag += (desiredLag - m.lag) * pull;
+        m.vy = 0;
+        m.y += (target.y - m.y) * Math.min(1, dt * 11);
+        m.flap += dt * 30;
+        // forgiving grab while lunging -> reliably triggers his frenzy
+        eatPass(scroll + motherScreenX() - m.lag, m.y, 38, true);
+      } else {
+        // normal formation follow (like a chick), easing lag back to his slot
+        const homeLag = 70 + chicks.indexOf(m) * 46;
+        m.lag += (homeLag - m.lag) * Math.min(1, dt * 2.2);
+        const targetY = sampleTrailY(scroll + motherScreenX() - m.lag) + (m.yOff || 0);
+        m.vy += (targetY - m.y) * (m.ease || 8) * dt * 6;
+        m.vy *= 0.86;
+        m.y += m.vy * dt;
+        if (m.y > gY) { m.y = gY; if (m.vy > 0) m.vy = 0; }
+        m.flap += dt * (Math.abs(m.vy) > 30 ? 16 : 6);
+      }
+    } else if (mikeyState === 'frenzy') {
       m.frenzyT = (m.frenzyT || 0) + dt;
       // zigzag up and down while racing ahead (his lag shrinks, even goes negative)
       m.lag -= 280 * dt;                       // pull ahead of mother
