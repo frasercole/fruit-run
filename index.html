@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>Fruit Run</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="stage">
+    <canvas id="game"></canvas>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <div class="chip" id="score-chip">
+        <span class="chip-label">FRUIT</span>
+        <span class="chip-value" id="score">0</span>
+      </div>
+      <div class="chip" id="chicks-chip">
+        <span class="chip-label">FLOCK</span>
+        <span class="chip-dots" id="chick-dots"></span>
+      </div>
+      <div class="chip" id="timer-chip">
+        <span class="chip-label">MIGRATION</span>
+        <span class="chip-value" id="timer">1:30</span>
+      </div>
+      <div id="stamina">
+        <div id="stamina-fill"></div>
+      </div>
+    </div>
+
+    <!-- Start screen -->
+    <div id="start" class="overlay">
+      <div class="panel">
+        <h1>Fruit&nbsp;Run</h1>
+        <p class="tagline">Gather your chicks. Eat the fruit. Fly south before the song ends.</p>
+        <ul class="how">
+          <li><b>Tap</b> to jump</li>
+          <li><b>Hold</b> to flap &amp; glide — but flight tires quickly</li>
+          <li>Sweep up <b>chicks</b> to catch more fruit</li>
+          <li>Clear the <b>rocks</b> — a bump scatters a chick</li>
+        </ul>
+        <button id="play-btn" class="btn">Begin the run</button>
+        <button id="sound-btn" class="btn-ghost">Music: on</button>
+      </div>
+    </div>
+
+    <!-- End screen -->
+    <div id="end" class="overlay hidden">
+      <div class="panel">
+        <h1 id="end-title">Flown south</h1>
+        <p class="tagline" id="end-sub">The flock made it to warmer climes.</p>
+        <div class="result">
+          <span class="result-num" id="final-score">0</span>
+          <span class="result-label">fruit gathered</span>
+        </div>
+        <button id="again-btn" class="btn">Run again</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
