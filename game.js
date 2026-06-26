@@ -19,6 +19,7 @@
     trunk: '#C9A98B', trunkShade: '#B8987B',
     fruitRed: '#E07A6B', fruitRedShade: '#C96A5C',
     fruitOrange: '#EBA86B', fruitOrangeShade: '#D8924F',
+    fruitGreen: '#9BCB6B', fruitGreenShade: '#7FB252', stalk: '#86A86F',
     mother: '#A0697E', motherBelly: '#C98BA0', motherWing: '#8E5A6E',
     chick: '#C089A0', chickBelly: '#D7A6BC', chickWing: '#AB7790',
     mikey: '#E8915A', mikeyBelly: '#F2AE83', mikeyWing: '#D67C46',
@@ -129,6 +130,12 @@
   let holding = false;
   let lastTap = 0;
 
+  // "Fan" power-up: eating a green power berry lifts the flock into a rising
+  // fan for a few seconds so they can reach high fruit & garlands.
+  const FAN_DURATION = 6;       // seconds
+  let fanTimer = 0;             // seconds of fan remaining
+  let fanStrength = 0;          // eased 0..1 — how lifted the flock currently is
+
   const mother = {
     y: 0, vy: 0, grounded: true,
     stamina: STAMINA_MAX,
@@ -143,12 +150,14 @@
   let chicks = [];              // {kind:'chick'|'mikey', lag, y, vy, eat, ...}
   const flyoffs = [];           // scattered chicks animating away
   const pops = [];              // fruit-eaten paper pops
+  const flecks = [];            // green confetti burst when the fan activates
   const leaves = [];            // ambient drifting leaves
 
   // world props (in world-space x). screenX = x - scroll
-  let trees = [], rocks = [], garlands = [];
+  let trees = [], rocks = [], garlands = [], powerups = [];
   let nextFeatureX = 0;
   let nextGarlandX = 0;
+  let nextPowerupX = 0;
 
   // ---------------------------------------------------------
   //  Spawning — procedural terrain that recycles as it scrolls
@@ -216,6 +225,13 @@
     return { fruits, x, maxX: x + (n - 1) * stepX };
   }
 
+  // A green "power berry" on a tall stalk — set high enough that the mother
+  // must deliberately jump for it. Eating one grants the fan power-up.
+  function makePowerBerry(x) {
+    const h = rand(80, 116);
+    return { x, y: groundY() - h, stalkH: h, eaten: false, green: true, sway: rand(0, 6) };
+  }
+
   function spawnAhead() {
     const edge = scroll + W + 120;
     while (nextFeatureX < edge) {
@@ -235,9 +251,15 @@
       garlands.push(makeGarland(nextGarlandX));
       nextGarlandX += rand(430, 720);
     }
+    // power berries are spaced well apart so the fan has real downtime
+    while (nextPowerupX < edge) {
+      powerups.push(makePowerBerry(nextPowerupX));
+      nextPowerupX += rand(1900, 3100);
+    }
     trees = trees.filter(t => t.x - scroll > -200);
     rocks = rocks.filter(r => r.x - scroll > -120);
     garlands = garlands.filter(g => g.maxX - scroll > -120);
+    powerups = powerups.filter(p => p.x - scroll > -80);
   }
 
   // ---------------------------------------------------------
@@ -248,10 +270,12 @@
     holding = false;
     mother.y = groundY(); mother.vy = 0; mother.grounded = true;
     mother.stamina = STAMINA_MAX; mother.flap = 0; mother.invuln = 0;
-    trail.length = 0; flyoffs.length = 0; pops.length = 0;
-    chicks = []; trees = []; rocks = []; garlands = []; leaves.length = 0;
+    trail.length = 0; flyoffs.length = 0; pops.length = 0; flecks.length = 0;
+    chicks = []; trees = []; rocks = []; garlands = []; powerups = []; leaves.length = 0;
+    fanTimer = 0; fanStrength = 0;
     nextFeatureX = W * 0.9;
     nextGarlandX = W * 1.15;
+    nextPowerupX = W * 1.4;
     // start with one chick; the flock grows over time, plus Mikey to find later
     addChick('chick');
     chickSpawnTimer = 6;
@@ -344,6 +368,11 @@
     trail.push({ d: mWorldX, y: mother.y });
     if (trail.length > TRAIL_MAX) trail.shift();
 
+    // --- fan power-up timer (snaps up on pickup, eases back down) ---
+    if (fanTimer > 0) fanTimer = Math.max(0, fanTimer - dt);
+    const fanTarget = fanTimer > 0 ? 1 : 0;
+    fanStrength += (fanTarget - fanStrength) * Math.min(1, dt * (fanTarget ? 9 : 2.6));
+
     // --- chicks accumulate over time (1 -> 2 -> 3) ---
     chickSpawnTimer -= dt;
     if (chickSpawnTimer <= 0 && chicks.filter(c => c.kind === 'chick').length < 3) {
@@ -375,6 +404,11 @@
     for (let i = pops.length - 1; i >= 0; i--) {
       const p = pops[i]; p.t += dt; p.x -= SCROLL * dt;
       if (p.t > 0.5) pops.splice(i, 1);
+    }
+    for (let i = flecks.length - 1; i >= 0; i--) {
+      const f = flecks[i];
+      f.t += dt; f.x += (f.vx - SCROLL) * dt; f.y += f.vy * dt; f.vy += 360 * dt;
+      if (f.t > 0.8) flecks.splice(i, 1);
     }
     for (let i = flyoffs.length - 1; i >= 0; i--) {
       const f = flyoffs[i];
@@ -413,17 +447,36 @@
         cb(fr, fx, fr.y);
       }
     }
+    for (const p of powerups) {
+      if (p.eaten) continue;
+      const fx = p.x - scroll;
+      if (fx < -60 || fx > W + 120) continue;
+      cb(p, fx, p.y);
+    }
   }
+
+  function fruitType(fr) { return fr.green ? 'green' : fr.orange ? 'orange' : 'red'; }
 
   function eatPass(wx, wy, radius, isMikey) {
     eachVisibleFruit((fr, fx, fy) => {
       if (Math.abs(fx + scroll - wx) < radius && Math.abs(fy - wy) < radius) {
         fr.eaten = true;
-        score += fr.orange ? 3 : 1;
-        pops.push({ x: fx, y: fy, t: 0, orange: fr.orange });
+        const type = fruitType(fr);
+        score += fr.green ? 2 : fr.orange ? 3 : 1;
+        pops.push({ x: fx, y: fy, t: 0, type });
+        if (fr.green) activateFan(fx, fy);
         if (fr.orange && isMikey) triggerMikeyFrenzy();
       }
     });
+  }
+
+  function activateFan(fx, fy) {
+    fanTimer = FAN_DURATION;          // (re)start the timer; grabbing another extends it
+    // a green burst of confetti so the pickup reads loud and clear
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2, sp = rand(90, 200);
+      flecks.push({ x: fx, y: fy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40, t: 0 });
+    }
   }
 
   function handleRocks(mWorldX) {
@@ -486,7 +539,7 @@
     const mWorldX = scroll + motherScreenX();
     for (const c of chicks) {
       if (c.kind === 'mikey') continue; // Mikey is fully driven by updateMikey
-      const targetY = sampleTrailY(mWorldX - c.lag) + c.yOff - c.lift;
+      const targetY = sampleTrailY(mWorldX - c.lag) + c.yOff - c.lift * fanStrength;
       // spring toward target -> different inertia than mother
       const k = c.ease;
       c.vy += (targetY - c.y) * k * dt * 6;
@@ -545,7 +598,7 @@
         // normal formation follow (like a chick), easing lag back to his slot
         const homeLag = 70 + chicks.indexOf(m) * 46;
         m.lag += (homeLag - m.lag) * Math.min(1, dt * 2.2);
-        const targetY = sampleTrailY(scroll + motherScreenX() - m.lag) + (m.yOff || 0) - (m.lift || 44);
+        const targetY = sampleTrailY(scroll + motherScreenX() - m.lag) + (m.yOff || 0) - (m.lift || 44) * fanStrength;
         m.vy += (targetY - m.y) * (m.ease || 8) * dt * 6;
         m.vy *= 0.86;
         m.y += m.vy * dt;
@@ -609,11 +662,13 @@
     drawTrees();
     drawRocks();
     drawGarlands();
+    drawPowerups();
     drawLeaves();
 
     drawFlyoffs();
     drawBirds();
     drawPops();
+    drawFlecks();
   }
 
   function drawSun() {
@@ -698,27 +753,66 @@
         if (fr.eaten) continue;
         const fx = x + (fr.ox * ca - fr.oy * sa);
         const fy = topY + (fr.ox * sa + fr.oy * ca);
-        drawFruit(fx, fy, fr.orange);
+        drawFruit(fx, fy, fruitType(fr));
       }
     }
   }
 
-  function drawFruit(x, y, orange) {
-    const r = 7;
-    ctx.fillStyle = orange ? C.fruitOrangeShade : C.fruitRedShade;
+  const FRUIT_FILL = { red: 'fruitRed', orange: 'fruitOrange', green: 'fruitGreen' };
+  const FRUIT_SHADE = { red: 'fruitRedShade', orange: 'fruitOrangeShade', green: 'fruitGreenShade' };
+
+  function drawFruit(x, y, type) {
+    const r = type === 'green' ? 8 : 7;
+    ctx.fillStyle = C[FRUIT_SHADE[type] || 'fruitRedShade'];
     ctx.beginPath(); ctx.arc(x + 1, y + 1, r, 0, 7); ctx.fill();
-    ctx.fillStyle = orange ? C.fruitOrange : C.fruitRed;
+    ctx.fillStyle = C[FRUIT_FILL[type] || 'fruitRed'];
     ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
     // tiny leaf
     ctx.fillStyle = C.foliage[0];
     ctx.beginPath(); ctx.ellipse(x + 2, y - r, 3, 1.6, -0.7, 0, 7); ctx.fill();
   }
 
+  // green power berries on tall stalks — the deliberate jump-to-grab pickup
+  function drawPowerups() {
+    const gy = groundY();
+    for (const p of powerups) {
+      if (p.eaten) continue;
+      const x = p.x - scroll;
+      if (x < -40 || x > W + 40) continue;
+      const sway = Math.sin(songTime * 1.6 + p.sway) * 4;
+      // stalk (a gentle curve to the swaying berry)
+      ctx.strokeStyle = C.stalk; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x, gy);
+      ctx.quadraticCurveTo(x - sway * 0.5, gy - p.stalkH * 0.5, p.x - scroll + sway, p.y + 6);
+      ctx.stroke();
+      // a leaf on the stalk
+      ctx.fillStyle = C.foliage[0];
+      ctx.beginPath();
+      ctx.ellipse(x - 4, gy - p.stalkH * 0.45, 7, 3, -0.5, 0, 7); ctx.fill();
+      // soft glow halo so it reads as special
+      ctx.fillStyle = 'rgba(155, 203, 107, 0.22)';
+      ctx.beginPath(); ctx.arc(p.x - scroll + sway, p.y, 16, 0, 7); ctx.fill();
+      drawFruit(p.x - scroll + sway, p.y, 'green');
+    }
+  }
+
+  function drawFlecks() {
+    for (const f of flecks) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - f.t / 0.8);
+      ctx.fillStyle = C.fruitGreen;
+      ctx.beginPath(); ctx.arc(f.x, f.y, 3.5, 0, 7); ctx.fill();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   // high berry garlands — a slack vine threaded through the fruit, hung in the
   // air for the flying chicks. Reads as the "fruit only the flock can reach."
   function drawGarlands() {
     for (const g of garlands) {
-      const pts = g.fruits.map(f => ({ x: f.x - scroll, y: f.y, eaten: f.eaten, orange: f.orange }));
+      const pts = g.fruits.map(f => ({ x: f.x - scroll, y: f.y, eaten: f.eaten, type: fruitType(f) }));
       if (pts[pts.length - 1].x < -80 || pts[0].x > W + 80) continue;
       // the slack vine
       ctx.strokeStyle = C.foliageShade[0];
@@ -736,7 +830,7 @@
         if (p.eaten) continue;
         ctx.strokeStyle = C.foliageShade[0]; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.moveTo(p.x, p.y - 6); ctx.lineTo(p.x, p.y - 1); ctx.stroke();
-        drawFruit(p.x, p.y, p.orange);
+        drawFruit(p.x, p.y, p.type);
       }
     }
   }
@@ -924,7 +1018,7 @@
       const k = p.t / 0.5;
       ctx.save();
       ctx.globalAlpha = 1 - k;
-      ctx.fillStyle = p.orange ? C.fruitOrange : C.fruitRed;
+      ctx.fillStyle = C[FRUIT_FILL[p.type] || 'fruitRed'];
       const r = 7 + k * 10;
       ctx.beginPath(); ctx.arc(p.x, p.y - k * 14, r, 0, 7); ctx.fill();
       // sparkle bits
@@ -947,6 +1041,9 @@
   const elTimer = document.getElementById('timer');
   const elDots = document.getElementById('chick-dots');
   const elStam = document.getElementById('stamina-fill');
+  const elFan = document.getElementById('fan-meter');
+  const elFanFill = document.getElementById('fan-fill');
+  let fanShown = false;
 
   function syncHUD() {
     elScore.textContent = score;
@@ -954,6 +1051,11 @@
     const ss = Math.floor(timeLeft % 60).toString().padStart(2, '0');
     elTimer.textContent = `${mm}:${ss}`;
     elStam.style.width = (mother.stamina / STAMINA_MAX * 100) + '%';
+
+    // fan power-up meter
+    const fanActive = fanTimer > 0;
+    if (fanActive !== fanShown) { elFan.classList.toggle('hidden', !fanActive); fanShown = fanActive; }
+    if (fanActive) elFanFill.style.width = (fanTimer / FAN_DURATION * 100) + '%';
 
     // chick dots: up to 3 + mikey
     const regular = chicks.filter(c => c.kind === 'chick').length;
