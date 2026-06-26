@@ -64,7 +64,7 @@
   //  Simple procedural music (WebAudio) — festive looping arpeggio
   // ---------------------------------------------------------
   const Music = (() => {
-    let actx = null, master = null, on = true, started = false, step = 0, nextTime = 0, timer = null;
+    let actx = null, master = null, on = false, started = false, step = 0, nextTime = 0, timer = null;
     const scale = [0, 2, 4, 7, 9];           // major pentatonic — warm & festive
     const bass = [0, 0, -5, -3];
     function freq(semi) { return 220 * Math.pow(2, semi / 12); }
@@ -929,10 +929,25 @@
 
   document.getElementById('play-btn').addEventListener('click', begin);
   document.getElementById('again-btn').addEventListener('click', begin);
-  document.getElementById('sound-btn').addEventListener('click', e => {
-    const on = Music.toggle();
-    e.target.textContent = 'Music: ' + (on ? 'on' : 'off');
-  });
+
+  // music controls — start-screen toggle + in-game mute button stay in sync
+  const soundBtn = document.getElementById('sound-btn');
+  const muteBtn = document.getElementById('mute-btn');
+  function reflectMusic() {
+    const on = Music.on;
+    soundBtn.textContent = 'Music: ' + (on ? 'on' : 'off');
+    muteBtn.classList.toggle('muted', !on);
+    muteBtn.setAttribute('aria-pressed', String(!on));
+    muteBtn.setAttribute('aria-label', on ? 'Mute music' : 'Unmute music');
+  }
+  function toggleMusic() {
+    Music.resume();
+    Music.toggle();
+    reflectMusic();
+  }
+  soundBtn.addEventListener('click', toggleMusic);
+  muteBtn.addEventListener('click', toggleMusic);
+  reflectMusic();
 
   // draw an idle frame behind the start screen
   reset();
