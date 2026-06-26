@@ -146,8 +146,9 @@
   const leaves = [];            // ambient drifting leaves
 
   // world props (in world-space x). screenX = x - scroll
-  let trees = [], rocks = [];
+  let trees = [], rocks = [], garlands = [];
   let nextFeatureX = 0;
+  let nextGarlandX = 0;
 
   // ---------------------------------------------------------
   //  Spawning — procedural terrain that recycles as it scrolls
@@ -193,6 +194,28 @@
     return { x, w, h: w * rand(0.5, 0.72), hit: false };
   }
 
+  // A "berry garland" strung high in the air — above the mother's running
+  // line, so only the lifted chicks can sweep it. A bigger flock covers more
+  // of the vertical band and collects more of each garland.
+  function makeGarland(x) {
+    const n = 4 + (Math.random() * 3 | 0);     // 4–6 berries
+    const stepX = rand(34, 44);
+    const topY = groundY() - rand(94, 140);    // the high anchor (ends)
+    const sag = rand(14, 34);                  // how far the middle droops
+    const hasOrange = Math.random() < 0.22;
+    const fruits = [];
+    for (let i = 0; i < n; i++) {
+      const t = n > 1 ? i / (n - 1) : 0.5;
+      fruits.push({
+        x: x + i * stepX,
+        y: topY + Math.sin(t * Math.PI) * sag,
+        eaten: false,
+        orange: hasOrange && i === (n >> 1),
+      });
+    }
+    return { fruits, x, maxX: x + (n - 1) * stepX };
+  }
+
   function spawnAhead() {
     const edge = scroll + W + 120;
     while (nextFeatureX < edge) {
@@ -207,8 +230,14 @@
         nextFeatureX += rand(150, 300);
       }
     }
+    // garlands ride their own cadence so they appear reliably
+    while (nextGarlandX < edge) {
+      garlands.push(makeGarland(nextGarlandX));
+      nextGarlandX += rand(430, 720);
+    }
     trees = trees.filter(t => t.x - scroll > -200);
     rocks = rocks.filter(r => r.x - scroll > -120);
+    garlands = garlands.filter(g => g.maxX - scroll > -120);
   }
 
   // ---------------------------------------------------------
@@ -220,28 +249,33 @@
     mother.y = groundY(); mother.vy = 0; mother.grounded = true;
     mother.stamina = STAMINA_MAX; mother.flap = 0; mother.invuln = 0;
     trail.length = 0; flyoffs.length = 0; pops.length = 0;
-    chicks = []; trees = []; rocks = []; leaves.length = 0;
+    chicks = []; trees = []; rocks = []; garlands = []; leaves.length = 0;
     nextFeatureX = W * 0.9;
-    // a couple of starter chicks already in line, plus Mikey to find later
-    addChick('chick'); addChick('chick');
-    chickSpawnTimer = 4;
+    nextGarlandX = W * 1.15;
+    // start with one chick; the flock grows over time, plus Mikey to find later
+    addChick('chick');
+    chickSpawnTimer = 6;
     mikeyInWorld = false; mikeyState = 'with';
     spawnAhead();
     for (let i = 0; i < 8; i++) leaves.push(newLeaf(Math.random() * W));
   }
 
-  let chickSpawnTimer = 4;
+  let chickSpawnTimer = 6;
   let mikeyInWorld = false;
   let mikeyState = 'with';   // with | frenzy | resting
   let mikeyRestX = 0;
 
   function addChick(kind) {
     const n = chicks.length;
+    const order = chicks.filter(c => c.kind === 'chick').length; // 0,1,2…
     chicks.push({
       kind,
       lag: 70 + n * 46,        // world-px behind mother
       y: groundY(), vy: 0,
-      yOff: rand(-10, 10),     // slightly different inertia -> catches missed fruit
+      yOff: rand(-6, 6),       // slightly different inertia -> catches missed fruit
+      // babies fly ABOVE the mother, fanning upward so the flock covers a
+      // taller band than she can reach alone. Mikey, the littlest, flies low.
+      lift: kind === 'mikey' ? 44 : 60 + order * 32,
       ease: rand(7, 10),
       flap: rand(0, 6),
     });
@@ -310,11 +344,11 @@
     trail.push({ d: mWorldX, y: mother.y });
     if (trail.length > TRAIL_MAX) trail.shift();
 
-    // --- chicks accumulate over time ---
+    // --- chicks accumulate over time (1 -> 2 -> 3) ---
     chickSpawnTimer -= dt;
     if (chickSpawnTimer <= 0 && chicks.filter(c => c.kind === 'chick').length < 3) {
       addChick('chick');
-      chickSpawnTimer = 9999; // (more arrive via Mikey discovery below)
+      chickSpawnTimer = 8; // next one arrives later
     }
     // Mikey appears resting in a tree partway through, to be "found"
     if (!mikeyInWorld && timeLeft < RUN_TIME * 0.72) {
@@ -328,7 +362,7 @@
     eatPass(mWorldX, mother.y, 30, false);
     for (const c of chicks) {
       const cWorldX = mWorldX - c.lag;
-      eatPass(cWorldX, c.y, 24, c.kind === 'mikey');
+      eatPass(cWorldX, c.y, 28, c.kind === 'mikey');
     }
 
     // --- rock collisions ---
@@ -355,26 +389,41 @@
     }
   }
 
-  function eatPass(wx, wy, radius, isMikey) {
+  // Visit every un-eaten on-screen fruit (trees + high garlands), passing the
+  // fruit object and its screen position. Shared by eating and Mikey's sensing.
+  function eachVisibleFruit(cb) {
     for (const t of trees) {
       const sx = t.x - scroll;
       if (sx < -120 || sx > W + 120) continue;
       const topY = t.isBush ? groundY() - t.r * 0.7 : groundY() - t.trunkH - t.r * 0.5;
+      const ang = t.rotating ? t.spin : 0;
+      const ca = Math.cos(ang), sa = Math.sin(ang);
       for (const fr of t.fruits) {
         if (fr.eaten) continue;
-        const ang = t.rotating ? t.spin : 0;
-        const ca = Math.cos(ang), sa = Math.sin(ang);
         const fx = sx + (fr.ox * ca - fr.oy * sa);
         const fy = topY + (fr.ox * sa + fr.oy * ca);
-        const fwx = fx + scroll;
-        if (Math.abs(fwx - wx) < radius && Math.abs(fy - wy) < radius) {
-          fr.eaten = true;
-          score += fr.orange ? 3 : 1;
-          pops.push({ x: fx, y: fy, t: 0, orange: fr.orange });
-          if (fr.orange && isMikey) triggerMikeyFrenzy();
-        }
+        cb(fr, fx, fy);
       }
     }
+    for (const g of garlands) {
+      for (const fr of g.fruits) {
+        if (fr.eaten) continue;
+        const fx = fr.x - scroll;
+        if (fx < -60 || fx > W + 120) continue;
+        cb(fr, fx, fr.y);
+      }
+    }
+  }
+
+  function eatPass(wx, wy, radius, isMikey) {
+    eachVisibleFruit((fr, fx, fy) => {
+      if (Math.abs(fx + scroll - wx) < radius && Math.abs(fy - wy) < radius) {
+        fr.eaten = true;
+        score += fr.orange ? 3 : 1;
+        pops.push({ x: fx, y: fy, t: 0, orange: fr.orange });
+        if (fr.orange && isMikey) triggerMikeyFrenzy();
+      }
+    });
   }
 
   function handleRocks(mWorldX) {
@@ -437,7 +486,7 @@
     const mWorldX = scroll + motherScreenX();
     for (const c of chicks) {
       if (c.kind === 'mikey') continue; // Mikey is fully driven by updateMikey
-      const targetY = sampleTrailY(mWorldX - c.lag) + c.yOff;
+      const targetY = sampleTrailY(mWorldX - c.lag) + c.yOff - c.lift;
       // spring toward target -> different inertia than mother
       const k = c.ease;
       c.vy += (targetY - c.y) * k * dt * 6;
@@ -459,21 +508,12 @@
   // nearest un-eaten orange fruit to a screen point, within range; null if none
   function nearestOrangeFruit(sx0, sy0, range) {
     let best = null, bestD = range;
-    for (const t of trees) {
-      const sx = t.x - scroll;
-      if (sx < -80 || sx > W + 140) continue;
-      const topY = t.isBush ? groundY() - t.r * 0.7 : groundY() - t.trunkH - t.r * 0.5;
-      const ang = t.rotating ? t.spin : 0;
-      const ca = Math.cos(ang), sa = Math.sin(ang);
-      for (const fr of t.fruits) {
-        if (fr.eaten || !fr.orange) continue;
-        const fx = sx + (fr.ox * ca - fr.oy * sa);
-        const fy = topY + (fr.ox * sa + fr.oy * ca);
-        if (fx < sx0 - 50) continue;              // don't chase fruit already behind him
-        const d = Math.hypot(fx - sx0, fy - sy0);
-        if (d < bestD) { bestD = d; best = { x: fx, y: fy, d }; }
-      }
-    }
+    eachVisibleFruit((fr, fx, fy) => {
+      if (!fr.orange) return;
+      if (fx < sx0 - 50) return;                  // don't chase fruit already behind him
+      const d = Math.hypot(fx - sx0, fy - sy0);
+      if (d < bestD) { bestD = d; best = { x: fx, y: fy, d }; }
+    });
     return best;
   }
 
@@ -505,7 +545,7 @@
         // normal formation follow (like a chick), easing lag back to his slot
         const homeLag = 70 + chicks.indexOf(m) * 46;
         m.lag += (homeLag - m.lag) * Math.min(1, dt * 2.2);
-        const targetY = sampleTrailY(scroll + motherScreenX() - m.lag) + (m.yOff || 0);
+        const targetY = sampleTrailY(scroll + motherScreenX() - m.lag) + (m.yOff || 0) - (m.lift || 44);
         m.vy += (targetY - m.y) * (m.ease || 8) * dt * 6;
         m.vy *= 0.86;
         m.y += m.vy * dt;
@@ -568,6 +608,7 @@
     // props sorted so nearer (bigger) draw last is unnecessary; draw trees behind birds
     drawTrees();
     drawRocks();
+    drawGarlands();
     drawLeaves();
 
     drawFlyoffs();
@@ -671,6 +712,33 @@
     // tiny leaf
     ctx.fillStyle = C.foliage[0];
     ctx.beginPath(); ctx.ellipse(x + 2, y - r, 3, 1.6, -0.7, 0, 7); ctx.fill();
+  }
+
+  // high berry garlands — a slack vine threaded through the fruit, hung in the
+  // air for the flying chicks. Reads as the "fruit only the flock can reach."
+  function drawGarlands() {
+    for (const g of garlands) {
+      const pts = g.fruits.map(f => ({ x: f.x - scroll, y: f.y, eaten: f.eaten, orange: f.orange }));
+      if (pts[pts.length - 1].x < -80 || pts[0].x > W + 80) continue;
+      // the slack vine
+      ctx.strokeStyle = C.foliageShade[0];
+      ctx.lineWidth = 2.4; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y - 6);
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1], b = pts[i];
+        const mx = (a.x + b.x) / 2, my = Math.max(a.y, b.y) + 5;
+        ctx.quadraticCurveTo(mx, my - 6, b.x, b.y - 6);
+      }
+      ctx.stroke();
+      // berries hanging on short stems
+      for (const p of pts) {
+        if (p.eaten) continue;
+        ctx.strokeStyle = C.foliageShade[0]; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(p.x, p.y - 6); ctx.lineTo(p.x, p.y - 1); ctx.stroke();
+        drawFruit(p.x, p.y, p.orange);
+      }
+    }
   }
 
   function drawRocks() {
