@@ -52,10 +52,12 @@
   const motherScreenX = () => W * 0.30;     // mother's fixed horizontal anchor
 
   // ---------------------------------------------------------
-  //  Beat clock — the whole scene breathes to one tune (120 BPM)
+  //  Beat clock — the whole scene breathes to the theme (80.94 BPM, 3/4).
+  //  One full bob cycle per quarter note; the run and the track both start at
+  //  zero, so the bob stays on the beat.
   // ---------------------------------------------------------
-  const BPM = 120;
-  const beatLen = 60 / BPM;                  // seconds per beat
+  const BPM = 80.94;                         // theme tempo, 3/4 time
+  const beatLen = 60 / BPM;                  // seconds per quarter note
   let songTime = 0;
   // phase 0..1 within a beat; bob = gentle sine, flap pulse near beat
   const beatPhase = () => (songTime % beatLen) / beatLen;
