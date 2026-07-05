@@ -281,14 +281,16 @@
     nextPowerupX = W * 1.4;
     // start with one chick; the flock grows over time, plus Mikey to find later
     addChick('chick');
+    chicksRecruited = 1;
     chickSpawnTimer = 6;
-    mikeyInWorld = false; mikeyState = 'with';
+    mikeySpawned = false; mikeyState = 'with';
     spawnAhead();
     for (let i = 0; i < 8; i++) leaves.push(newLeaf(Math.random() * W));
   }
 
   let chickSpawnTimer = 6;
-  let mikeyInWorld = false;
+  let chicksRecruited = 0;   // total regular chicks ever gathered (cap 3, no refill after losses)
+  let mikeySpawned = false;  // Mikey is discovered once; if lost to a rock he stays gone
   let mikeyState = 'with';   // with | frenzy | resting
   let mikeyRestX = 0;
 
@@ -424,15 +426,16 @@
     const fanTarget = fanTimer > 0 ? 1 : 0;
     fanStrength += (fanTarget - fanStrength) * Math.min(1, dt * (fanTarget ? 9 : 2.6));
 
-    // --- chicks accumulate over time (1 -> 2 -> 3) ---
+    // --- flock gathers over time (1 -> 2 -> 3), a one-time recruitment ---
     chickSpawnTimer -= dt;
-    if (chickSpawnTimer <= 0 && chicks.filter(c => c.kind === 'chick').length < 3) {
+    if (chickSpawnTimer <= 0 && chicksRecruited < 3) {
       addChick('chick');
+      chicksRecruited++;
       chickSpawnTimer = 8; // next one arrives later
     }
-    // Mikey appears resting in a tree partway through, to be "found"
-    if (!mikeyInWorld && timeLeft < RUN_TIME * 0.72) {
-      mikeyInWorld = true; mikeyState = 'with'; addChick('mikey');
+    // Mikey appears resting in a tree partway through, to be "found" (just once)
+    if (!mikeySpawned && timeLeft < RUN_TIME * 0.72) {
+      mikeySpawned = true; mikeyState = 'with'; addChick('mikey');
     }
 
     updateChicks(dt);
@@ -555,7 +558,7 @@
       x: cWorldX - scroll, y: c.y, vx: rand(-40, -120), vy: rand(-260, -360),
       rot: 0, t: 0, kind: c.kind,
     });
-    if (c.kind === 'mikey') { mikeyInWorld = false; mikeyState = 'with'; }
+    // once a chick (Mikey included) is scattered it stays gone — no re-recruiting
   }
 
   function endRun(survived) {
