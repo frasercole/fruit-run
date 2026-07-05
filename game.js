@@ -52,16 +52,24 @@
   const motherScreenX = () => W * 0.30;     // mother's fixed horizontal anchor
 
   // ---------------------------------------------------------
-  //  Beat clock — the whole scene breathes to the theme (80.94 BPM, 3/4).
+  //  Beat clock — the whole scene breathes to the theme (100 BPM, 3/4).
   //  One full bob cycle per quarter note; the run and the track both start at
   //  zero, so the bob stays on the beat.
   // ---------------------------------------------------------
-  const BPM = 80.94;                         // theme tempo, 3/4 time
+  const BPM = 100;                           // theme tempo, 3/4 time
   const beatLen = 60 / BPM;                  // seconds per quarter note
+  const BEATS_PER_BAR = 3;                   // 3/4
   let songTime = 0;
-  // phase 0..1 within a beat; bob = gentle sine, flap pulse near beat
+  // phase 0..1 within a beat; flap pulse near beat
   const beatPhase = () => (songTime % beatLen) / beatLen;
-  const bob = (off = 0) => Math.sin((songTime / beatLen + off) * Math.PI * 2);
+  // gentle vertical bob; the downbeat ("ONE" of each bar) bobs harder. The
+  // amplitude only changes at integer beats where the sine is 0, so the extra
+  // lift on ONE is smooth — no jerk. Passing `off` shifts a bird's own phase.
+  const bob = (off = 0) => {
+    const t = songTime / beatLen + off;      // position in quarter notes
+    const onOne = ((Math.floor(t) % BEATS_PER_BAR) + BEATS_PER_BAR) % BEATS_PER_BAR === 0;
+    return Math.sin(t * Math.PI * 2) * (onOne ? 2.1 : 1);
+  };
 
   // ---------------------------------------------------------
   //  Music — the Fruit Run theme (looping mp3)
@@ -69,11 +77,11 @@
   //  button and start-screen toggle stay wired up unchanged.
   // ---------------------------------------------------------
   const Music = (() => {
-    let audio = null, on = false;          // default off (unmute to hear it)
+    let audio = null, on = true;           // default on (first play waits for a tap)
     function ensure() {
       if (audio) return;
       audio = new Audio('theme.mp3');
-      audio.loop = true;                   // seamless replay if a run outlasts the track
+      audio.loop = false;                  // play through once; only a new run restarts it
       audio.preload = 'auto';
       audio.volume = 0.65;
     }
@@ -85,14 +93,16 @@
         if (on) play(); else if (audio) audio.pause();
         return on;
       },
-      // called when a run begins — restart the theme from the top
+      // called when a run begins — (re)start the theme from the top
       start() {
         ensure();
         audio.currentTime = 0;
         if (on) play();
       },
-      // called on each tap; recover if the browser paused playback
-      resume() { if (on && audio && audio.paused) play(); },
+      // called on each tap; recover if the browser paused playback mid-run.
+      // Never restarts a track that already finished — that only happens on a
+      // new run, so when a game ends the music plays out and then stays quiet.
+      resume() { if (on && audio && audio.paused && !audio.ended) play(); },
     };
   })();
 
