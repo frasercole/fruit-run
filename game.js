@@ -147,6 +147,12 @@
   const flyoffs = [];           // scattered chicks animating away
   const pops = [];              // fruit-eaten paper pops
   const flecks = [];            // green confetti burst when the fan activates
+
+  // end-of-run migration: the flock gathers into a V and flies up & to the right
+  let migrators = [];
+  let migrating = false;
+  let migrateT = 0;
+  let migAnchorStart = { x: 0, y: 0 };
   const leaves = [];            // ambient drifting leaves
 
   // world props (in world-space x). screenX = x - scroll
@@ -268,6 +274,7 @@
     mother.stamina = STAMINA_MAX; mother.flap = 0; mother.invuln = 0;
     trail.length = 0; flyoffs.length = 0; pops.length = 0; flecks.length = 0;
     chicks = []; trees = []; rocks = []; garlands = []; powerups = []; leaves.length = 0;
+    migrators = []; migrating = false; migrateT = 0;
     fanTimer = 0; fanStrength = 0;
     nextFeatureX = W * 0.9;
     nextGarlandX = W * 1.15;
@@ -330,6 +337,7 @@
   // ---------------------------------------------------------
   function update(dt) {
     songTime += dt;
+    if (migrators.length) updateMigration(dt);
     if (state !== 'play') return;
 
     timeLeft -= dt;
@@ -511,7 +519,86 @@
     document.getElementById('end-sub').textContent = survived
       ? 'The whole flock made it to warmer climes.'
       : 'The last of the flock scattered — rest now, fly tomorrow.';
-    document.getElementById('end').classList.remove('hidden');
+    const endEl = document.getElementById('end');
+    if (survived) {
+      // soften the scene, let the flock fly off for warmer climes, then reveal
+      beginMigration();
+      canvas.classList.add('ending');
+      setTimeout(() => { if (state === 'end') endEl.classList.remove('hidden'); }, 1500);
+    } else {
+      endEl.classList.remove('hidden');
+    }
+  }
+
+  // ---------------------------------------------------------
+  //  End-of-run migration — snapshot the flock and fly it off in a V
+  // ---------------------------------------------------------
+  function beginMigration() {
+    migrators = [];
+    // leader (mother) first, then the flock wherever they currently are
+    migrators.push({ kind: 'mother', scale: 1.0, x: motherScreenX(), y: mother.y - 16, flap: mother.flap });
+    for (const c of chicks) {
+      migrators.push({
+        kind: c.kind,
+        scale: 0.7,
+        x: motherScreenX() - c.lag,
+        y: c.y - 10,
+        flap: c.flap || 0,
+      });
+    }
+    migrators.forEach(b => { b.phase = Math.random() * 6; b.scale0 = b.scale; b.alpha = 1; });
+    migAnchorStart = { x: migrators[0].x, y: migrators[0].y };
+    migrateT = 0;
+    migrating = true;
+    // clear transient effects so no scattered-chick/puff artifacts freeze on screen
+    flyoffs.length = 0; pops.length = 0; flecks.length = 0;
+  }
+
+  function updateMigration(dt) {
+    migrateT += dt;
+    const t = migrateT;
+    const ux = 0.885, uy = -0.466;          // heading: up and to the right (~-28°)
+    const px = 0.466, py = 0.885;           // perpendicular (down-right) for the V
+    const dist = 60 * t + 55 * t * t;       // accelerate away
+    const ax = migAnchorStart.x + dist * ux;
+    const ay = migAnchorStart.y + dist * uy;
+    const spacingA = 24, spacingP = 22;
+    for (let i = 0; i < migrators.length; i++) {
+      const b = migrators[i];
+      let slotX = ax, slotY = ay;
+      if (i > 0) {                            // fan out behind the leader into a V
+        const rank = Math.ceil(i / 2), side = (i % 2 === 1) ? -1 : 1;
+        const along = -rank * spacingA, perp = side * rank * spacingP;
+        slotX = ax + along * ux + perp * px;
+        slotY = ay + along * uy + perp * py;
+      }
+      slotY += Math.sin(t * 9 + b.phase) * 3; // wingbeat lilt
+      const k = Math.min(1, dt * (2.5 + t));  // ease into formation, tightening over time
+      b.x += (slotX - b.x) * k;
+      b.y += (slotY - b.y) * k;
+      b.scale = Math.max(0.34, b.scale0 * (1 - t * 0.13)); // recede into the distance
+      b.alpha = t > 3.4 ? Math.max(0, 1 - (t - 3.4) / 1.6) : 1;
+      b.flap += dt * 18;
+    }
+    if (t > 5) migrators = [];                // flown away (migrating flag stays set)
+  }
+
+  function drawMigration() {
+    const beat = Math.max(0, 1 - beatPhase() * 3);
+    for (let i = migrators.length - 1; i >= 0; i--) { // leader drawn last, on top
+      const b = migrators[i];
+      const col = b.kind === 'mother'
+        ? { body: C.mother, belly: C.motherBelly, wing: C.motherWing }
+        : b.kind === 'mikey'
+          ? { body: C.mikey, belly: C.mikeyBelly, wing: C.mikeyWing }
+          : { body: C.chick, belly: C.chickBelly, wing: C.chickWing };
+      col.flap = b.flap; col.beat = beat;
+      ctx.save();
+      ctx.globalAlpha = b.alpha;
+      drawBird(b.x, b.y, b.scale, col, { legs: false });
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
   }
 
   // ---------------------------------------------------------
@@ -662,7 +749,7 @@
     drawLeaves();
 
     drawFlyoffs();
-    drawBirds();
+    if (migrating) drawMigration(); else drawBirds();
     drawPops();
     drawFlecks();
   }
@@ -1088,6 +1175,7 @@
     reset();
     state = 'play';
     Music.start();
+    canvas.classList.remove('ending');
     startEl.classList.add('hidden');
     endEl.classList.add('hidden');
     hudEl.classList.remove('hidden');
