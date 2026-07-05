@@ -62,51 +62,35 @@
   const bob = (off = 0) => Math.sin((songTime / beatLen + off) * Math.PI * 2);
 
   // ---------------------------------------------------------
-  //  Simple procedural music (WebAudio) — festive looping arpeggio
+  //  Music — the Fruit Run theme (looping mp3)
+  //  Same tiny API as before (on / start / toggle / resume) so the mute
+  //  button and start-screen toggle stay wired up unchanged.
   // ---------------------------------------------------------
   const Music = (() => {
-    let actx = null, master = null, on = false, started = false, step = 0, nextTime = 0, timer = null;
-    const scale = [0, 2, 4, 7, 9];           // major pentatonic — warm & festive
-    const bass = [0, 0, -5, -3];
-    function freq(semi) { return 220 * Math.pow(2, semi / 12); }
-    function blip(t, f, dur, type, gain) {
-      const o = actx.createOscillator(), g = actx.createGain();
-      o.type = type; o.frequency.value = f;
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(gain, t + 0.012);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      o.connect(g).connect(master);
-      o.start(t); o.stop(t + dur + 0.02);
+    let audio = null, on = false;          // default off (unmute to hear it)
+    function ensure() {
+      if (audio) return;
+      audio = new Audio('theme.mp3');
+      audio.loop = true;                   // seamless replay if a run outlasts the track
+      audio.preload = 'auto';
+      audio.volume = 0.65;
     }
-    function schedule() {
-      const sixteenth = beatLen / 2;          // eighth notes
-      while (nextTime < actx.currentTime + 0.15) {
-        const bar = Math.floor(step / 8);
-        const inBar = step % 8;
-        const note = scale[(step * 2 + (bar % 3)) % scale.length] + (inBar % 4 === 0 ? 12 : 7);
-        blip(nextTime, freq(note + 12), 0.18, 'triangle', 0.10);
-        if (inBar % 2 === 0) blip(nextTime, freq(note + 24), 0.10, 'sine', 0.05);
-        if (inBar % 4 === 0) blip(nextTime, freq(bass[bar % bass.length] - 12), 0.32, 'sawtooth', 0.06);
-        nextTime += sixteenth;
-        step++;
-      }
-    }
+    const play = () => { ensure(); audio.play().catch(() => {}); };
     return {
       get on() { return on; },
-      toggle() { on = !on; if (master) master.gain.value = on ? 0.5 : 0; return on; },
-      start() {
-        if (started) return;
-        try {
-          actx = new (window.AudioContext || window.webkitAudioContext)();
-          master = actx.createGain();
-          master.gain.value = on ? 0.5 : 0;
-          master.connect(actx.destination);
-          nextTime = actx.currentTime + 0.05;
-          timer = setInterval(schedule, 25);
-          started = true;
-        } catch (e) { /* audio optional */ }
+      toggle() {
+        on = !on;
+        if (on) play(); else if (audio) audio.pause();
+        return on;
       },
-      resume() { if (actx && actx.state === 'suspended') actx.resume(); },
+      // called when a run begins — restart the theme from the top
+      start() {
+        ensure();
+        audio.currentTime = 0;
+        if (on) play();
+      },
+      // called on each tap; recover if the browser paused playback
+      resume() { if (on && audio && audio.paused) play(); },
     };
   })();
 
