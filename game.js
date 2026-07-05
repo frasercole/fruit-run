@@ -323,7 +323,40 @@
   }
   function release() { holding = false; }
 
-  canvas.addEventListener('pointerdown', press);
+  // ---- Fullscreen: in landscape, a tap makes the game take over the screen;
+  //      a tap near the top drops back out (revealing the browser chrome).
+  //      Element fullscreen works on iPad Safari, Android, and desktop. iPhone
+  //      Safari blocks it — use Add to Home Screen there for true fullscreen. ----
+  const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+  const fsSupported = () => !!(document.documentElement.requestFullscreen ||
+                               document.documentElement.webkitRequestFullscreen);
+  const isLandscape = () => window.innerWidth > window.innerHeight;
+  const isTouch = () => window.matchMedia('(pointer: coarse)').matches;
+  const topZonePx = () => Math.min(72, H * 0.16);   // "near the top" band
+
+  function requestFS() {
+    const el = document.documentElement;
+    const fn = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!fn) return;
+    try { const p = fn.call(el); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ignore */ }
+  }
+  function exitFS() {
+    const fn = document.exitFullscreen || document.webkitExitFullscreen;
+    if (!fn) return;
+    try { fn.call(document); } catch (e) { /* ignore */ }
+  }
+  function maybeEnterFullscreen() {
+    if (!fsEl() && fsSupported() && isTouch() && isLandscape()) requestFS();
+  }
+
+  canvas.addEventListener('pointerdown', e => {
+    if (fsEl()) {
+      if (e.clientY <= topZonePx()) { exitFS(); return; } // tap near top -> exit, no jump
+    } else {
+      maybeEnterFullscreen();                             // tap -> take over the screen
+    }
+    press();
+  });
   window.addEventListener('pointerup', release);
   window.addEventListener('keydown', e => {
     if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); press(); }
@@ -331,6 +364,20 @@
   window.addEventListener('keyup', e => {
     if (e.code === 'Space' || e.code === 'ArrowUp') release();
   });
+
+  // resize the canvas when entering/leaving fullscreen, and hint how to get out
+  function onFsChange() { resize(); if (fsEl()) showFsHint(); }
+  document.addEventListener('fullscreenchange', onFsChange);
+  document.addEventListener('webkitfullscreenchange', onFsChange);
+
+  const fsHintEl = document.getElementById('fs-hint');
+  let fsHintTimer = null;
+  function showFsHint() {
+    if (!fsHintEl) return;
+    fsHintEl.classList.add('show');
+    clearTimeout(fsHintTimer);
+    fsHintTimer = setTimeout(() => fsHintEl.classList.remove('show'), 2600);
+  }
 
   // ---------------------------------------------------------
   //  Update
@@ -1175,6 +1222,7 @@
     reset();
     state = 'play';
     Music.start();
+    maybeEnterFullscreen();
     canvas.classList.remove('ending');
     startEl.classList.add('hidden');
     endEl.classList.add('hidden');

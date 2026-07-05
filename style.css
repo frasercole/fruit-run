@@ -63,9 +63,29 @@ html, body {
   backdrop-filter: blur(2px);
 }
 
-#score-chip  { top: clamp(12px, 2.4vw, 22px); left: clamp(12px, 2.4vw, 22px); }
-#chicks-chip { top: clamp(12px, 2.4vw, 22px); left: 50%; transform: translateX(-50%); align-items: center; }
-#timer-chip  { top: clamp(12px, 2.4vw, 22px); right: clamp(12px, 2.4vw, 22px); align-items: flex-end; }
+#score-chip  { top: max(clamp(12px, 2.4vw, 22px), env(safe-area-inset-top)); left: max(clamp(12px, 2.4vw, 22px), env(safe-area-inset-left)); }
+#chicks-chip { top: max(clamp(12px, 2.4vw, 22px), env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); align-items: center; }
+#timer-chip  { top: max(clamp(12px, 2.4vw, 22px), env(safe-area-inset-top)); right: max(clamp(12px, 2.4vw, 22px), env(safe-area-inset-right)); align-items: flex-end; }
+
+/* exit-fullscreen hint */
+#fs-hint {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  left: 50%;
+  padding: 7px 15px;
+  border-radius: 999px;
+  background: rgba(90, 74, 82, 0.8);
+  color: #fdf6ec;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 30;
+  opacity: 0;
+  transform: translateX(-50%) translateY(-8px);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+#fs-hint.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 .chip-label {
   font-size: 10px;
@@ -132,7 +152,7 @@ html, body {
 #stamina {
   position: absolute;
   left: 50%;
-  bottom: clamp(14px, 3vw, 26px);
+  bottom: max(clamp(14px, 3vw, 26px), env(safe-area-inset-bottom));
   transform: translateX(-50%);
   width: clamp(120px, 26vw, 200px);
   height: 8px;
@@ -152,8 +172,8 @@ html, body {
 /* mute toggle — bottom-left, matches the chip aesthetic */
 .mute-btn {
   position: absolute;
-  left: clamp(12px, 2.4vw, 22px);
-  bottom: clamp(14px, 3vw, 26px);
+  left: max(clamp(12px, 2.4vw, 22px), env(safe-area-inset-left));
+  bottom: max(clamp(14px, 3vw, 26px), env(safe-area-inset-bottom));
   width: 44px;
   height: 44px;
   display: inline-flex;
