@@ -539,11 +539,13 @@
     for (const r of rocks) {
       if (r.hit) continue;
       const rTop = groundY() - r.h;
-      const dx = Math.abs((r.x) - mWorldX);
-      // Tight, size-proportional strike zone (scales with each rock): the bird's
-      // centre must be genuinely over the rock AND low enough to be into it — so
-      // if it looks like she cleared it, she did.
-      if (dx < r.w * 0.42 && feet > rTop + r.h * 0.25) {
+      const depth = feet - rTop;              // how far the feet are below the rock's top
+      if (depth <= 0) continue;               // clearly above the rock — always a clean pass
+      // The rock is a triangle: near-zero width at the peak, full width at the base.
+      // Match that taper so clearing the peak (front OR back edge) never logs a
+      // phantom hit — the solid half-width grows with how deep the feet are.
+      const solidHalf = r.w * 0.5 * Math.min(1, depth / r.h);
+      if (Math.abs(r.x - mWorldX) < solidHalf) {
         r.hit = true;
         loseChick();
         break;
