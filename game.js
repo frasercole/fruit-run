@@ -449,7 +449,7 @@
     }
 
     // --- rock collisions ---
-    handleRocks(mWorldX);
+    handleRocks();
 
     // --- rotating treetops ---
     for (const t of trees) if (t.rotating) t.spin += t.spinDir * dt * 0.7;
@@ -533,19 +533,52 @@
     }
   }
 
-  function handleRocks(mWorldX) {
+  // --- geometry helpers for shape-accurate rock collision ---
+  function pointInPoly(px, py, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+      if (((yi > py) !== (yj > py)) &&
+          (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+  function distToSeg(px, py, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+    let t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+  }
+  function circleHitsPoly(cx, cy, r, poly) {
+    if (pointInPoly(cx, cy, poly)) return true;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      if (distToSeg(cx, cy, poly[j][0], poly[j][1], poly[i][0], poly[i][1]) <= r) return true;
+    }
+    return false;
+  }
+
+  function handleRocks() {
     if (mother.invuln > 0) return;
-    const feet = mother.y;
+    const gy = groundY();
+    // The bird's solid mass as a forgiving circle at her drawn body centre —
+    // no wing tips, beak or legs — so a collision means the shapes actually
+    // overlap. If she looks clear of the rock (front, peak, or back edge),
+    // the circle misses the polygon and nothing triggers.
+    const bx = motherScreenX();
+    const by = mother.y - 16;
+    const R = 11;
     for (const r of rocks) {
       if (r.hit) continue;
-      const rTop = groundY() - r.h;
-      const depth = feet - rTop;              // how far the feet are below the rock's top
-      if (depth <= 0) continue;               // clearly above the rock — always a clean pass
-      // The rock is a triangle: near-zero width at the peak, full width at the base.
-      // Match that taper so clearing the peak (front OR back edge) never logs a
-      // phantom hit — the solid half-width grows with how deep the feet are.
-      const solidHalf = r.w * 0.5 * Math.min(1, depth / r.h);
-      if (Math.abs(r.x - mWorldX) < solidHalf) {
+      const sx = r.x - scroll;                 // rock centre on screen
+      if (sx < bx - r.w - R || sx > bx + r.w + R) continue; // off to the side, skip
+      // rock silhouette polygon in screen space, matching drawRocks()
+      const poly = [
+        [sx - r.w * 0.5, gy],
+        [sx - r.w * 0.32, gy - r.h],
+        [sx + r.w * 0.12, gy - r.h * 0.86],
+        [sx + r.w * 0.5, gy],
+      ];
+      if (circleHitsPoly(bx, by, R, poly)) {
         r.hit = true;
         loseChick();
         break;
