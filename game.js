@@ -540,7 +540,10 @@
       if (r.hit) continue;
       const rTop = groundY() - r.h;
       const dx = Math.abs((r.x) - mWorldX);
-      if (dx < r.w * 0.5 + 18 && feet > rTop - 6) {
+      // Tight, size-proportional strike zone (scales with each rock): the bird's
+      // centre must be genuinely over the rock AND low enough to be into it — so
+      // if it looks like she cleared it, she did.
+      if (dx < r.w * 0.42 && feet > rTop + r.h * 0.25) {
         r.hit = true;
         loseChick();
         break;
